@@ -6,13 +6,7 @@
 #include <ctime>
 #include <chrono>
 
-
-
-
-
-
-
-
+//string builder
 std::string Metrics::toJson() const {
     std::ostringstream o;
     o << "{";
@@ -26,22 +20,22 @@ std::string Metrics::toJson() const {
 }
 
 Metrics Sampler::sample(){
+// Total memory
     uint64_t total = 0;
     size_t size = sizeof(total); 
     sysctlbyname("hw.memsize", &total, &size, nullptr, 0);
     double totalMB = total/ 1024.0 / 1024.0;
-
+// Available memory
     vm_size_t pageSize;
     vm_statistics64_data_t vmStats;
     mach_msg_type_number_t count = sizeof(vmStats) / sizeof(natural_t);
     host_page_size(mach_host_self(), &pageSize);
     host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&vmStats, &count);
 
-
     double availMB = (vmStats.free_count * pageSize) / 1024.0/1024.0;
     double usedMB = totalMB - availMB;
 
-
+//time stamps
     auto now = std::chrono::system_clock::now().time_since_epoch();
     int64_t ts= std::chrono::duration_cast<std::chrono::seconds>(now).count();
 
