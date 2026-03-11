@@ -15,4 +15,9 @@ struct Metrics {
 class Sampler {
     public:
         Metrics sample();
+    
+
+    private:
+        uint64_t prevIdle_ = 0;
+        uint64_t prevTotal_ = 0;
 };

@@ -3,7 +3,8 @@
 #include <sstream>
 #include <sys/sysctl.h>
 #include <mach/mach.h>
-
+#include <ctime>
+#include <chrono>
 
 
 
@@ -40,5 +41,12 @@ Metrics Sampler::sample(){
     double availMB = (vmStats.free_count * pageSize) / 1024.0/1024.0;
     double usedMB = totalMB - availMB;
 
-    return Metrics{ 42.0, usedMB, totalMB, 0};
+
+    auto now = std::chrono::system_clock::now().time_since_epoch();
+    int64_t ts= std::chrono::duration_cast<std::chrono::seconds>(now).count();
+
+
+
+
+    return Metrics{ 42.0, usedMB, totalMB, ts};
 }
