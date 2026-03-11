@@ -21,11 +21,11 @@ std::string Metrics::toJson() const {
 
 Metrics Sampler::sample(){
 // Total memory
-    uint64_t total = 0;
-    size_t size = sizeof(total); 
-    sysctlbyname("hw.memsize", &total, &size, nullptr, 0);
-    double totalMB = total/ 1024.0 / 1024.0;
-// Available memory
+    uint64_t ramTotal = 0;
+    size_t size = sizeof(ramTotal); 
+    sysctlbyname("hw.memsize", &ramTotal, &size, nullptr, 0);
+    double totalMB = ramTotal/ 1024.0 / 1024.0;
+// Available 
     vm_size_t pageSize;
     vm_statistics64_data_t vmStats;
     mach_msg_type_number_t count = sizeof(vmStats) / sizeof(natural_t);
@@ -39,8 +39,27 @@ Metrics Sampler::sample(){
     auto now = std::chrono::system_clock::now().time_since_epoch();
     int64_t ts= std::chrono::duration_cast<std::chrono::seconds>(now).count();
 
+//cpu
+    processor_info_array_t cpuInfo;
+    mach_msg_type_number_t cpuInfoCount;
+    natural_t cpuCount;
+    host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO,
+                    &cpuCount, &cpuInfo, &cpuInfoCount);
+    uint64_t idle = 0, total = 0;
+    for (natural_t i = 0; i < cpuCount; i++) {
+        idle  += cpuInfo[i * CPU_STATE_MAX + CPU_STATE_IDLE];
+        total += cpuInfo[i * CPU_STATE_MAX + CPU_STATE_USER]
+               + cpuInfo[i * CPU_STATE_MAX + CPU_STATE_SYSTEM]
+               + cpuInfo[i * CPU_STATE_MAX + CPU_STATE_IDLE]
+               + cpuInfo[i * CPU_STATE_MAX + CPU_STATE_NICE];
+        }
 
+    uint64_t deltaIdle  = idle  - prevIdle_;
+    uint64_t deltaTotal = total - prevTotal_;
+    double cpu = (1.0 - (double)deltaIdle / (double)deltaTotal) * 100.0;
 
+    prevIdle_  = idle;
+    prevTotal_ = total;
 
-    return Metrics{ 42.0, usedMB, totalMB, ts};
+    return Metrics{ cpu, usedMB, totalMB, ts};
 }
