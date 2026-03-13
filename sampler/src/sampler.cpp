@@ -1,12 +1,18 @@
-//sample method 
 #include "sampler.h"
+
 #include <sstream>
-#include <sys/sysctl.h>
-#include <mach/mach.h>
-#include <ctime>
 #include <chrono>
 
-//string builder
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <sys/sysctl.h>
+#endif
+
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 std::string Metrics::toJson() const {
     std::ostringstream o;
     o << "{";
@@ -19,47 +25,101 @@ std::string Metrics::toJson() const {
     return o.str();
 }
 
-Metrics Sampler::sample(){
-// Total memory
+Metrics Sampler::sample() {
+    double totalMB = 0.0;
+    double usedMB = 0.0;
+    double cpu = 0.0;
+
+#ifdef _WIN32
+    MEMORYSTATUSEX memoryInfo;
+    memoryInfo.dwLength = sizeof(memoryInfo);
+    if (GlobalMemoryStatusEx(&memoryInfo)) {
+        totalMB = static_cast<double>(memoryInfo.ullTotalPhys) / 1024.0 / 1024.0;
+        double availMB = static_cast<double>(memoryInfo.ullAvailPhys) / 1024.0 / 1024.0;
+        usedMB = totalMB - availMB;
+    }
+
+    FILETIME idleTime;
+    FILETIME kernelTime;
+    FILETIME userTime;
+    if (GetSystemTimes(&idleTime, &kernelTime, &userTime)) {
+        ULARGE_INTEGER idleNow;
+        ULARGE_INTEGER kernelNow;
+        ULARGE_INTEGER userNow;
+
+        idleNow.LowPart = idleTime.dwLowDateTime;
+        idleNow.HighPart = idleTime.dwHighDateTime;
+        kernelNow.LowPart = kernelTime.dwLowDateTime;
+        kernelNow.HighPart = kernelTime.dwHighDateTime;
+        userNow.LowPart = userTime.dwLowDateTime;
+        userNow.HighPart = userTime.dwHighDateTime;
+
+        uint64_t idle = idleNow.QuadPart;
+        uint64_t total = kernelNow.QuadPart + userNow.QuadPart;
+
+        if (prevTotal_ != 0) {
+            uint64_t deltaIdle = idle - prevIdle_;
+            uint64_t deltaTotal = total - prevTotal_;
+
+            if (deltaTotal != 0) {
+                cpu = (1.0 - static_cast<double>(deltaIdle) / static_cast<double>(deltaTotal)) * 100.0;
+            }
+        }
+
+        prevIdle_ = idle;
+        prevTotal_ = total;
+    }
+#elif __APPLE__
     uint64_t ramTotal = 0;
-    size_t size = sizeof(ramTotal); 
+    size_t size = sizeof(ramTotal);
     sysctlbyname("hw.memsize", &ramTotal, &size, nullptr, 0);
-    double totalMB = ramTotal/ 1024.0 / 1024.0;
-// Available 
+    totalMB = static_cast<double>(ramTotal) / 1024.0 / 1024.0;
+
     vm_size_t pageSize;
     vm_statistics64_data_t vmStats;
     mach_msg_type_number_t count = sizeof(vmStats) / sizeof(natural_t);
     host_page_size(mach_host_self(), &pageSize);
     host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&vmStats, &count);
 
-    double availMB = (vmStats.free_count * pageSize) / 1024.0/1024.0;
-    double usedMB = totalMB - availMB;
+    double availMB = static_cast<double>(vmStats.free_count * pageSize) / 1024.0 / 1024.0;
+    usedMB = totalMB - availMB;
 
-//time stamps
-    auto now = std::chrono::system_clock::now().time_since_epoch();
-    int64_t ts= std::chrono::duration_cast<std::chrono::seconds>(now).count();
-
-//cpu
     processor_info_array_t cpuInfo;
     mach_msg_type_number_t cpuInfoCount;
     natural_t cpuCount;
-    host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO,
-                    &cpuCount, &cpuInfo, &cpuInfoCount);
-    uint64_t idle = 0, total = 0;
+    host_processor_info(
+        mach_host_self(),
+        PROCESSOR_CPU_LOAD_INFO,
+        &cpuCount,
+        &cpuInfo,
+        &cpuInfoCount
+    );
+
+    uint64_t idle = 0;
+    uint64_t total = 0;
     for (natural_t i = 0; i < cpuCount; i++) {
-        idle  += cpuInfo[i * CPU_STATE_MAX + CPU_STATE_IDLE];
-        total += cpuInfo[i * CPU_STATE_MAX + CPU_STATE_USER]
-               + cpuInfo[i * CPU_STATE_MAX + CPU_STATE_SYSTEM]
-               + cpuInfo[i * CPU_STATE_MAX + CPU_STATE_IDLE]
-               + cpuInfo[i * CPU_STATE_MAX + CPU_STATE_NICE];
+        idle += cpuInfo[i * CPU_STATE_MAX + CPU_STATE_IDLE];
+        total += cpuInfo[i * CPU_STATE_MAX + CPU_STATE_USER];
+        total += cpuInfo[i * CPU_STATE_MAX + CPU_STATE_SYSTEM];
+        total += cpuInfo[i * CPU_STATE_MAX + CPU_STATE_IDLE];
+        total += cpuInfo[i * CPU_STATE_MAX + CPU_STATE_NICE];
+    }
+
+    if (prevTotal_ != 0) {
+        uint64_t deltaIdle = idle - prevIdle_;
+        uint64_t deltaTotal = total - prevTotal_;
+
+        if (deltaTotal != 0) {
+            cpu = (1.0 - static_cast<double>(deltaIdle) / static_cast<double>(deltaTotal)) * 100.0;
         }
+    }
 
-    uint64_t deltaIdle  = idle  - prevIdle_;
-    uint64_t deltaTotal = total - prevTotal_;
-    double cpu = (1.0 - (double)deltaIdle / (double)deltaTotal) * 100.0;
-
-    prevIdle_  = idle;
+    prevIdle_ = idle;
     prevTotal_ = total;
+#endif
 
-    return Metrics{ cpu, usedMB, totalMB, ts};
+    auto now = std::chrono::system_clock::now().time_since_epoch();
+    int64_t ts = std::chrono::duration_cast<std::chrono::seconds>(now).count();
+
+    return Metrics{cpu, usedMB, totalMB, ts};
 }
