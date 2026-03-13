@@ -23,4 +23,4 @@ cmake --build build
 - [x] C++ sampler — real CPU + RAM on macOS
 - [ ] C# API — SSE endpoint
 - [ ] React frontend — live dashboard
-- [ ] Windows port — swap macOS APIs for PDH + GlobalMemoryStatusEx
+- [/] Windows port — swap macOS APIs for PDH + GlobalMemoryStatusEx
