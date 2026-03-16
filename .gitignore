@@ -1,2 +1,15 @@
+# C++ build
 build/
-.vscode
+
+# C# build
+bin/
+obj/
+
+# IDE
+.vscode/
+.idea/
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
